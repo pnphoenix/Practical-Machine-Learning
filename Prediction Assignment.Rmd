@@ -1,0 +1,185 @@
+---
+title: "ML Project"
+author: "Parth"
+date: "21/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+## Background  
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, our goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset).   
+
+## Intended Results  
+The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.  
+1. Your submission should consist of a link to a Github repo with your R markdown and compiled HTML file describing your analysis. Please constrain the text of the writeup to < 2000 words and the number of figures to be less than 5. It will make it easier for the graders if you submit a repo with a gh-pages branch so the HTML page can be viewed online (and you always want to make it easy on graders :-).  
+2. You should also apply your machine learning algorithm to the 20 test cases available in the test data above. Please submit your predictions in appropriate format to the programming assignment for automated grading. See the programming assignment for additional details.  
+
+## Reproducibility  
+In order to reproduce the same results, you need a certain set of packages as well as setting a pseudo random seed equal to the one I have used.  
+`Note`: To install, for instance, the `rattle` package in R, run this command: `install.packages("rattle")`.  
+The following Libraries were used for this project, which you should install and load them in your working environment.  
+
+```{r warning=FALSE, error=FALSE}
+ # Setting working directory first
+setwd("~/Machine Learning")
+
+ # Removes all objects from the current workspace (R memory)
+rm(list=ls())                
+
+ # Libraries
+library(knitr)
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(corrplot)
+library(caret)
+
+library(RColorBrewer)
+library(gbm)
+
+ # Set seed to create reproducibility
+set.seed(12345)
+```  
+
+## Loading the Data.  
+```{r warning=FALSE, error=FALSE}
+TrainData <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"),header=TRUE)
+dim(TrainData)
+
+ValidData <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"),header=TRUE)
+dim(ValidData)
+```  
+
+## Data Cleaning  
+In order to get a clean data, we will remove those columns that have at least 90% of this kind of observations. We can also get rid of the first variables, as they contain ID and timestamp information that are not necessary to build the model.
+
+```{r warning=FALSE, error=FALSE}
+ # Removing NA's, empty values, and unnecesary variables in the Trainning dataset.
+EmptyCols <- which(colSums(is.na(TrainData) |TrainData=="")>0.9*dim(TrainData)[1]) 
+TrainDataClean <- TrainData[,-EmptyCols]
+TrainDataClean <- TrainDataClean[,-c(1:7)]
+dim(TrainDataClean)
+
+ # Removing NA's, empty values in the Test dataset.
+EmptyCols <- which(colSums(is.na(ValidData) |ValidData=="")>0.9*dim(ValidData)[1]) 
+ValidDataClean <- ValidData[,-EmptyCols]
+ValidDataClean <- ValidDataClean[,-1]
+dim(ValidDataClean)
+```  
+
+## Data Partitioning for prediction
+Here, we prepare the data for prediction by splitting the training data into 70% as train data and 30% as test data. This splitting will serve to test the model accuracy.
+```{r warning=FALSE, error=FALSE}
+set.seed(12345) 
+inTrain <- createDataPartition(TrainDataClean$classe, p = 0.7, list = FALSE)
+TrainData <- TrainDataClean[inTrain, ]
+TestData <- TrainDataClean[-inTrain, ]
+dim(TrainData)
+``` 
+
+## Exploratory Data Analysis 
+We can take a look into our data and explore the correlations between all the variables before modeling.
+```{r warning=FALSE, error=FALSE}
+corMatrix <- cor(TrainData[, -53])
+corrplot(corMatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0),mar = c(1, 1, 1, 1), title = "Training Dataset Correlogram")
+
+# Count the number of variables that are highly correlated with another one
+M <- abs(cor(TrainData[,-53])); diag(M) <- 0
+M <- which(M > 0.8, arr.ind = T)
+M <- dim(M)[1]
+M
+```  
+
+## Cross-Validation
+In order to limit the effects of overfitting, and improve the efficicency of the models, we will use the cross-validation technique. Cross-validation is done for each model with K = 3. This is set in the above code chunk using the fitControl object as defined below:
+```{r warning=FALSE, error=FALSE}
+fitControl <- trainControl(method='cv', number = 3)
+```  
+
+## Decision Trees Model
+```{r warning=FALSE, error=FALSE}
+# Decision Trees Model
+TrainData$classe=factor(TrainData$classe)
+DT_Model <- train(classe~., data=TrainData, method="rpart", trControl=fitControl)
+#  Plot 
+fancyRpartPlot(DT_Model$finalModel)
+
+# Testing the model
+DT_Predict <- predict(DT_Model,newdata=TestData)
+DT_cm <- confusionMatrix(table(TestData$classe,DT_Predict))
+
+# Display confusion matrix and model accuracy
+DT_cm
+
+# Model Accuracy
+DT_cm$overall[1]
+```  
+Using cross-validation with three steps, the accuracy of this first model is about 0.496, therefore the out-of-sample-error is 0.5, which is high. This means that the outcome class will not be predicted very well by the other predictors
+
+## Random Forests Model
+```{r warning=FALSE, error=FALSE}
+# Random Forests Model
+TrainData$classe=factor(TrainData$classe)
+RF_Model <- train(classe~., data=TrainData, method="rf", trControl=fitControl, verbose=FALSE)
+# Plot
+plot(RF_Model,main="RF Model Accuracy by number of predictors")
+
+# Testing the model
+RF_Predict <- predict(RF_Model,newdata=TestData)
+RF_cm <- confusionMatrix(table(TestData$classe,RF_Predict))
+
+# Display confusion matrix and model accuracy
+RF_cm
+
+# Model Accuracy
+RF_cm$overall[1]
+```  
+In this plot, we can notice that the model reaches the highest accuracy with two predictors. With more variables added to the model, the difference in the accuracy is not significant, but still lower. The fact that not all the accuracy is much worse with all the available predictors lets us suggest that there may be some dependencies between them.
+
+Using cross-validation with three steps, the model accuracy is 0.989. Therefore the out-of-sample-error is 0.011, which is very good.
+```{r warning=FALSE, error=FALSE}
+plot(RF_Model$finalModel,main="Model error of Random forest model by number of trees")
+```  
+
+We can add to this analysis that using more than about 30 trees does not reduce the error significantly.
+
+## Generalized Boosted model
+```{r warning=FALSE, error=FALSE}
+# Generalized Boosted Model
+TrainData$classe=factor(TrainData$classe)
+GBM_Model <- train(classe~., data=TrainData, method="gbm", trControl=fitControl, verbose=FALSE)
+#  Plot 
+plot(GBM_Model)
+
+# Testing the model
+GBM_Predict <- predict(GBM_Model,newdata=TestData)
+GBM_cm <- confusionMatrix(table(TestData$classe,GBM_Predict))
+
+# Display confusion matrix and model accuracy
+GBM_cm
+
+# Model Acuracy
+GBM_cm$overall[1]
+```  
+
+Using cross-validation with three steps, the model accuracy is 0.957, and the out-of-sample-error is 0.043 which is good.
+
+## Applying the best model to the validation data
+
+```{r warning=FALSE, error=FALSE}
+# Model Validation 
+Prediction_Test <- predict(RF_Model,newdata=ValidDataClean)
+Prediction_Test
+```  
